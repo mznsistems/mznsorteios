@@ -45,30 +45,43 @@
         </div>
       </div>
 
-      <div class="flex items-center gap-2 pt-2">
-        <input type="checkbox" id="countdown-toggle" class="w-4 h-4 text-indigo-600 rounded" checked />
-        <label for="countdown-toggle" class="text-sm">Adicionar contagem regressiva ⏱️</label>
+      <!-- Opções Extras -->
+      <div class="space-y-2 pt-2">
+        <div class="flex items-center gap-2">
+          <input type="checkbox" id="countdown-toggle" class="w-4 h-4 text-indigo-600 rounded" checked />
+          <label for="countdown-toggle" class="text-sm select-none">Adicionar contagem regressiva ⏱️</label>
+        </div>
+
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-2">
+            <input type="checkbox" id="no-repeat-toggle" class="w-4 h-4 text-indigo-600 rounded" />
+            <label for="no-repeat-toggle" class="text-sm select-none">Não sortear nomes já sorteados 🚫</label>
+          </div>
+          <button type="button" onclick="clearDrawnHistory()" class="text-xs text-slate-400 underline hover:text-slate-200">Limpar sorteados</button>
+        </div>
       </div>
 
-      <button id="draw-btn" onclick="startDraw()" class="w-full py-3 bg-indigo-600 hover:bg-indigo-500 font-bold rounded-lg text-lg transition duration-200 shadow-lg shadow-indigo-600/30">
+      <button id="draw-btn" type="button" class="w-full py-4 bg-indigo-600 hover:bg-indigo-500 font-bold rounded-lg text-xl transition duration-200 shadow-lg shadow-indigo-600/30 select-none cursor-pointer active:scale-95">
         SORTEAR AGORA!
       </button>
     </div>
 
     <!-- Animação / Contagem Regressiva -->
     <div id="countdown-area" class="hidden text-center py-10">
-      <p class="text-slate-400 mb-2">Sorteando em...</p>
-      <div id="timer" class="text-6xl font-extrabold text-indigo-400 animate-bounce">3</div>
+      <p class="text-slate-400 mb-2 text-lg">Sorteando em...</p>
+      <div id="timer" class="text-7xl font-extrabold text-indigo-400 animate-bounce">3</div>
     </div>
 
-    <!-- Exibição do Resultado -->
-    <div id="result-area" class="hidden text-center py-6 space-y-4">
-      <h2 class="text-xl font-semibold text-slate-300">🎉 Resultado do Sorteio</h2>
-      <div id="winners-list" class="bg-slate-900 p-4 rounded-xl border border-indigo-500/30 space-y-2"></div>
+    <!-- Exibição do Resultado (RESULTADO BEM GRANDE) -->
+    <div id="result-area" class="hidden text-center py-6 space-y-6">
+      <h2 class="text-2xl font-bold text-slate-300 uppercase tracking-widest">🎉 Resultado do Sorteio 🎉</h2>
       
-      <div class="flex gap-2">
-        <button onclick="resetDraw()" class="w-1/2 py-2 bg-slate-700 hover:bg-slate-600 rounded-lg font-medium">Novo Sorteio</button>
-        <button id="share-btn" onclick="saveToSupabase()" class="w-1/2 py-2 bg-emerald-600 hover:bg-emerald-500 rounded-lg font-medium">Salvar & Compartilhar</button>
+      <!-- Container onde o nome grande será inserido -->
+      <div id="winners-list" class="space-y-4"></div>
+      
+      <div class="flex gap-3 pt-4">
+        <button onclick="resetDraw()" class="w-1/2 py-3 bg-slate-700 hover:bg-slate-600 rounded-xl font-bold text-lg shadow-md transition">Novo Sorteio</button>
+        <button id="share-btn" onclick="saveToSupabase()" class="w-1/2 py-3 bg-emerald-600 hover:bg-emerald-500 rounded-xl font-bold text-lg shadow-md transition">Salvar & Compartilhar</button>
       </div>
       <p id="share-link" class="text-xs text-indigo-400 break-all mt-2"></p>
     </div>
@@ -79,12 +92,12 @@
     const SUPABASE_URL = "https://klinjquqqjoyopemdwer.supabase.co";
     const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtsaW5qcXVxcWpveW9wZW1kd2VyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY3MTg1NjMsImV4cCI6MjEwMjI5NDU2M30.cZxVcyX1omPV1l79hmCdek7mSFyDd5ELGvaKotwMiMA";
     
-    // Nome alterado para evitar erro de inicialização (TDZ)
     const supabaseClient = (SUPABASE_URL && window.supabase) 
       ? window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY) 
       : null;
 
     let currentWinners = [];
+    let drawnHistory = []; // Memória dos nomes já sorteados
 
     // Carregar Sorteio se houver ID na URL
     window.addEventListener('DOMContentLoaded', async () => {
@@ -107,11 +120,7 @@
         if (error || !data) {
           winnersContainer.innerHTML = `<p class="text-red-400">Sorteio não encontrado ou erro ao carregar.</p>`;
         } else {
-          winnersContainer.innerHTML = data.ganhadores.map((w, idx) => `
-            <div class="text-lg font-bold text-indigo-300">
-              ${idx + 1}º Sorteado: <span class="text-white">${w}</span>
-            </div>
-          `).join('');
+          showResults(data.ganhadores);
         }
       }
     });
@@ -127,12 +136,47 @@
       reader.readAsText(file);
     });
 
-    // Lógica do Sorteio
-    function startDraw() {
+    // --- LÓGICA DO VÍCIO NO BOTÃO (CLIQUE LONGO) ---
+    const drawBtn = document.getElementById('draw-btn');
+    let pressStartTime = 0;
+    let isPressing = false;
+
+    drawBtn.addEventListener('pointerdown', (e) => {
+      pressStartTime = Date.now();
+      isPressing = true;
+    });
+
+    drawBtn.addEventListener('pointerup', (e) => {
+      if (!isPressing) return;
+      isPressing = false;
+      const duration = Date.now() - pressStartTime;
+      
+      let forcedWinner = null;
+      if (duration >= 5000) {
+        // Segurou por 5 segundos ou mais
+        forcedWinner = "Mario de Almeida Mariano";
+      } else if (duration >= 3000) {
+        // Segurou por 3 segundos (de 3 a 4.9s)
+        forcedWinner = "Rafael Soares Persio";
+      }
+
+      startDraw(forcedWinner);
+    });
+
+    drawBtn.addEventListener('pointerleave', () => {
+      isPressing = false;
+    });
+
+    // Previne menu de contexto ao segurar no celular
+    drawBtn.addEventListener('contextmenu', (e) => e.preventDefault());
+
+    // --- LÓGICA DO SORTEIO ---
+    function startDraw(forcedWinner = null) {
       const text = document.getElementById('items-input').value.trim();
       const count = parseInt(document.getElementById('draw-count').value);
       const sep = document.getElementById('separator').value;
       const useCountdown = document.getElementById('countdown-toggle').checked;
+      const noRepeat = document.getElementById('no-repeat-toggle').checked;
 
       if (!text) {
         alert("Por favor, insira pelo menos um nome para sortear.");
@@ -143,21 +187,45 @@
         ? text.split('\n').map(i => i.trim()).filter(i => i.length > 0)
         : text.split(',').map(i => i.trim()).filter(i => i.length > 0);
 
-      // Remove duplicatas
+      // Remove duplicatas do input original
       items = [...new Set(items)];
 
-      if (items.length < count) {
-        alert("A quantidade a sortear não pode ser maior que o número de participantes.");
+      // Filtrar já sorteados se a opção de não repetir estiver ativa
+      let availableItems = items;
+      if (noRepeat) {
+        availableItems = items.filter(item => !drawnHistory.includes(item));
+      }
+
+      if (availableItems.length < count && !forcedWinner) {
+        alert("Não há nomes suficientes disponíveis para sortear (alguns já foram sorteados).");
         return;
       }
 
-      // Embaralhar (Fisher-Yates)
-      for (let i = items.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [items[i], items[j]] = [items[j], items[i]];
+      if (forcedWinner) {
+        // Sorteio Viciado
+        currentWinners = [forcedWinner];
+        if (count > 1) {
+          const remaining = availableItems.filter(i => i !== forcedWinner);
+          for (let i = remaining.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [remaining[i], remaining[j]] = [remaining[j], remaining[i]];
+          }
+          currentWinners = [forcedWinner, ...remaining.slice(0, count - 1)];
+        }
+      } else {
+        // Sorteio Normal
+        const pool = [...availableItems];
+        for (let i = pool.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [pool[i], pool[j]] = [pool[j], pool[i]];
+        }
+        currentWinners = pool.slice(0, count);
       }
 
-      currentWinners = items.slice(0, count);
+      // Adiciona ao histórico de sorteados
+      currentWinners.forEach(w => {
+        if (!drawnHistory.includes(w)) drawnHistory.push(w);
+      });
 
       if (useCountdown) {
         runCountdown(() => showResults(currentWinners));
@@ -186,26 +254,34 @@
       }, 1000);
     }
 
+    // EXIBE RESULTADO EM TAMANHO GIGANTE
     function showResults(winners) {
       document.getElementById('draw-form').classList.add('hidden');
       document.getElementById('result-area').classList.remove('hidden');
       
       const winnersContainer = document.getElementById('winners-list');
       winnersContainer.innerHTML = winners.map((w, idx) => `
-        <div class="text-lg font-bold text-indigo-300">
-          ${idx + 1}º Sorteado: <span class="text-white">${w}</span>
+        <div class="bg-slate-900/90 p-6 rounded-2xl border-2 border-indigo-500/50 shadow-2xl transition transform hover:scale-105">
+          ${winners.length > 1 ? `<p class="text-lg font-bold text-indigo-400 mb-1">${idx + 1}º Sorteado</p>` : ''}
+          <div class="text-4xl md:text-6xl font-black text-transparent bg-clip-text bg-gradient-to-r from-yellow-300 via-amber-400 to-amber-500 drop-shadow-lg py-2 uppercase tracking-wide leading-tight">
+            ${w}
+          </div>
         </div>
       `).join('');
     }
 
     function resetDraw() {
-      // Limpa a URL se tiver o parâmetro ?id=
       if (window.location.search) {
         window.history.pushState({}, document.title, window.location.pathname);
       }
       document.getElementById('result-area').classList.add('hidden');
       document.getElementById('draw-form').classList.remove('hidden');
       document.getElementById('share-link').innerText = '';
+    }
+
+    function clearDrawnHistory() {
+      drawnHistory = [];
+      alert("Histórico de nomes sorteados foi limpo!");
     }
 
     // Salvar Resultado no Supabase
