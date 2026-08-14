@@ -78,11 +78,43 @@
     // --- CONFIGURAÇÃO DO SUPABASE ---
     const SUPABASE_URL = "https://klinjquqqjoyopemdwer.supabase.co";
     const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtsaW5qcXVxcWpveW9wZW1kd2VyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY3MTg1NjMsImV4cCI6MjEwMjI5NDU2M30.cZxVcyX1omPV1l79hmCdek7mSFyDd5ELGvaKotwMiMA";
-    const supabase = (SUPABASE_URL && !SUPABASE_URL.includes("SUA_URL")) 
-      ? supabase.createClient(SUPABASE_URL, SUPABASE_KEY) 
+    
+    // Nome alterado para evitar erro de inicialização (TDZ)
+    const supabaseClient = (SUPABASE_URL && window.supabase) 
+      ? window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY) 
       : null;
 
     let currentWinners = [];
+
+    // Carregar Sorteio se houver ID na URL
+    window.addEventListener('DOMContentLoaded', async () => {
+      const urlParams = new URLSearchParams(window.location.search);
+      const drawId = urlParams.get('id');
+
+      if (drawId && supabaseClient) {
+        document.getElementById('draw-form').classList.add('hidden');
+        document.getElementById('result-area').classList.remove('hidden');
+        
+        const winnersContainer = document.getElementById('winners-list');
+        winnersContainer.innerHTML = `<p class="text-slate-400">Carregando resultado do sorteio...</p>`;
+
+        const { data, error } = await supabaseClient
+          .from('sorteios')
+          .select('ganhadores')
+          .eq('id', drawId)
+          .single();
+
+        if (error || !data) {
+          winnersContainer.innerHTML = `<p class="text-red-400">Sorteio não encontrado ou erro ao carregar.</p>`;
+        } else {
+          winnersContainer.innerHTML = data.ganhadores.map((w, idx) => `
+            <div class="text-lg font-bold text-indigo-300">
+              ${idx + 1}º Sorteado: <span class="text-white">${w}</span>
+            </div>
+          `).join('');
+        }
+      }
+    });
 
     // Leitura de Arquivo TXT / CSV
     document.getElementById('file-input').addEventListener('change', function(e) {
@@ -119,7 +151,7 @@
         return;
       }
 
-      // Embaralhar (Fisher-Yates Shuffle)
+      // Embaralhar (Fisher-Yates)
       for (let i = items.length - 1; i > 0; i--) {
         const j = Math.floor(Math.random() * (i + 1));
         [items[i], items[j]] = [items[j], items[i]];
@@ -167,6 +199,10 @@
     }
 
     function resetDraw() {
+      // Limpa a URL se tiver o parâmetro ?id=
+      if (window.location.search) {
+        window.history.pushState({}, document.title, window.location.pathname);
+      }
       document.getElementById('result-area').classList.add('hidden');
       document.getElementById('draw-form').classList.remove('hidden');
       document.getElementById('share-link').innerText = '';
@@ -174,23 +210,23 @@
 
     // Salvar Resultado no Supabase
     async function saveToSupabase() {
-      if (!supabase) {
-        alert("Configure a URL e a Key do Supabase no código para ativar o salvamento.");
+      if (!supabaseClient) {
+        alert("Configuração do Supabase indisponível.");
         return;
       }
 
-      const { data, error } = await supabase
+      const { data, error } = await supabaseClient
         .from('sorteios')
         .insert([{ ganhadores: currentWinners }])
         .select();
 
       if (error) {
         console.error(error);
-        alert("Erro ao salvar sorteio.");
+        alert("Erro ao salvar sorteio no banco de dados.");
       } else if (data && data.length > 0) {
         const drawId = data[0].id;
         const shareUrl = `${window.location.origin}${window.location.pathname}?id=${drawId}`;
-        document.getElementById('share-link').innerHTML = `Link permanente: <a href="${shareUrl}" target="_blank" class="underline">${shareUrl}</a>`;
+        document.getElementById('share-link').innerHTML = `Link permanente: <a href="${shareUrl}" target="_blank" class="underline font-semibold">${shareUrl}</a>`;
       }
     } 
   </script>
