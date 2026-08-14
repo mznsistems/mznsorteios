@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Sorteador de Nomes</title>
+  <!-- Tailwind CSS para Estilização Rápida -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- SDK do Supabase -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body class="bg-slate-900 text-slate-100 min-h-screen flex flex-col items-center justify-center p-4">
+
+  <main class="w-full max-w-2xl bg-slate-800 p-6 rounded-2xl shadow-xl border border-slate-700">
+    <h1 class="text-3xl font-bold text-center text-indigo-400 mb-6">🎉 Sorteador de Nomes</h1>
+
+    <!-- Formulário do Sorteio -->
+    <div id="draw-form" class="space-y-4">
+      <div>
+        <label class="block text-sm font-medium mb-1">Lista de Nomes ou Itens</label>
+        <textarea id="items-input" rows="6" 
+          placeholder="Cole os nomes aqui, separados por linha ou vírgula..."
+          class="w-full bg-slate-900 border border-slate-700 rounded-lg p-3 text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"></textarea>
+      </div>
+
+      <!-- Upload de Arquivo TXT/CSV -->
+      <div>
+        <label class="block text-xs text-slate-400 mb-1">Ou envie um arquivo (.txt ou .csv):</label>
+        <input type="file" id="file-input" accept=".txt,.csv" class="block w-full text-xs text-slate-400 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-xs file:bg-slate-700 file:text-slate-200 hover:file:bg-slate-600"/>
+      </div>
+
+      <!-- Opções -->
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
+        <div>
+          <label class="block text-sm font-medium mb-1">Quantidade a sortear</label>
+          <input type="number" id="draw-count" value="1" min="1" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-center text-slate-100" />
+        </div>
+
+        <div>
+          <label class="block text-sm font-medium mb-1">Separador</label>
+          <select id="separator" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-slate-100">
+            <option value="newline">Quebra de Linha</option>
+            <option value="comma">Vírgula</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="flex items-center gap-2 pt-2">
+        <input type="checkbox" id="countdown-toggle" class="w-4 h-4 text-indigo-600 rounded" checked />
+        <label for="countdown-toggle" class="text-sm">Adicionar contagem regressiva ⏱️</label>
+      </div>
+
+      <button id="draw-btn" onclick="startDraw()" class="w-full py-3 bg-indigo-600 hover:bg-indigo-500 font-bold rounded-lg text-lg transition duration-200 shadow-lg shadow-indigo-600/30">
+        SORTEAR AGORA!
+      </button>
+    </div>
+
+    <!-- Animação / Contagem Regressiva -->
+    <div id="countdown-area" class="hidden text-center py-10">
+      <p class="text-slate-400 mb-2">Sorteando em...</p>
+      <div id="timer" class="text-6xl font-extrabold text-indigo-400 animate-bounce">3</div>
+    </div>
+
+    <!-- Exibição do Resultado -->
+    <div id="result-area" class="hidden text-center py-6 space-y-4">
+      <h2 class="text-xl font-semibold text-slate-300">🎉 Resultado do Sorteio</h2>
+      <div id="winners-list" class="bg-slate-900 p-4 rounded-xl border border-indigo-500/30 space-y-2"></div>
+      
+      <div class="flex gap-2">
+        <button onclick="resetDraw()" class="w-1/2 py-2 bg-slate-700 hover:bg-slate-600 rounded-lg font-medium">Novo Sorteio</button>
+        <button id="share-btn" onclick="saveToSupabase()" class="w-1/2 py-2 bg-emerald-600 hover:bg-emerald-500 rounded-lg font-medium">Salvar & Compartilhar</button>
+      </div>
+      <p id="share-link" class="text-xs text-indigo-400 break-all mt-2"></p>
+    </div>
+  </main>
+
+  <script>
+    // --- CONFIGURAÇÃO DO SUPABASE ---
+    const SUPABASE_URL = "https://klinjquqqjoyopemdwer.supabase.co";
+    const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtsaW5qcXVxcWpveW9wZW1kd2VyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY3MTg1NjMsImV4cCI6MjEwMjI5NDU2M30.cZxVcyX1omPV1l79hmCdek7mSFyDd5ELGvaKotwMiMA";
+    const supabase = (SUPABASE_URL && !SUPABASE_URL.includes("SUA_URL")) 
+      ? supabase.createClient(SUPABASE_URL, SUPABASE_KEY) 
+      : null;
+
+    let currentWinners = [];
+
+    // Leitura de Arquivo TXT / CSV
+    document.getElementById('file-input').addEventListener('change', function(e) {
+      const file = e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = function(e) {
+        document.getElementById('items-input').value = e.target.result;
+      };
+      reader.readAsText(file);
+    });
+
+    // Lógica do Sorteio
+    function startDraw() {
+      const text = document.getElementById('items-input').value.trim();
+      const count = parseInt(document.getElementById('draw-count').value);
+      const sep = document.getElementById('separator').value;
+      const useCountdown = document.getElementById('countdown-toggle').checked;
+
+      if (!text) {
+        alert("Por favor, insira pelo menos um nome para sortear.");
+        return;
+      }
+
+      let items = (sep === 'newline') 
+        ? text.split('\n').map(i => i.trim()).filter(i => i.length > 0)
+        : text.split(',').map(i => i.trim()).filter(i => i.length > 0);
+
+      // Remove duplicatas
+      items = [...new Set(items)];
+
+      if (items.length < count) {
+        alert("A quantidade a sortear não pode ser maior que o número de participantes.");
+        return;
+      }
+
+      // Embaralhar (Fisher-Yates Shuffle)
+      for (let i = items.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [items[i], items[j]] = [items[j], items[i]];
+      }
+
+      currentWinners = items.slice(0, count);
+
+      if (useCountdown) {
+        runCountdown(() => showResults(currentWinners));
+      } else {
+        showResults(currentWinners);
+      }
+    }
+
+    function runCountdown(callback) {
+      document.getElementById('draw-form').classList.add('hidden');
+      document.getElementById('countdown-area').classList.remove('hidden');
+      
+      let timerVal = 3;
+      const timerEl = document.getElementById('timer');
+      timerEl.innerText = timerVal;
+
+      const interval = setInterval(() => {
+        timerVal--;
+        if (timerVal > 0) {
+          timerEl.innerText = timerVal;
+        } else {
+          clearInterval(interval);
+          document.getElementById('countdown-area').classList.add('hidden');
+          callback();
+        }
+      }, 1000);
+    }
+
+    function showResults(winners) {
+      document.getElementById('draw-form').classList.add('hidden');
+      document.getElementById('result-area').classList.remove('hidden');
+      
+      const winnersContainer = document.getElementById('winners-list');
+      winnersContainer.innerHTML = winners.map((w, idx) => `
+        <div class="text-lg font-bold text-indigo-300">
+          ${idx + 1}º Sorteado: <span class="text-white">${w}</span>
+        </div>
+      `).join('');
+    }
+
+    function resetDraw() {
+      document.getElementById('result-area').classList.add('hidden');
+      document.getElementById('draw-form').classList.remove('hidden');
+      document.getElementById('share-link').innerText = '';
+    }
+
+    // Salvar Resultado no Supabase
+    async function saveToSupabase() {
+      if (!supabase) {
+        alert("Configure a URL e a Key do Supabase no código para ativar o salvamento.");
+        return;
+      }
+
+      const { data, error } = await supabase
+        .from('sorteios')
+        .insert([{ ganhadores: currentWinners }])
+        .select();
+
+      if (error) {
+        console.error(error);
+        alert("Erro ao salvar sorteio.");
+      } else if (data && data.length > 0) {
+        const drawId = data[0].id;
+        const shareUrl = `${window.location.origin}${window.location.pathname}?id=${drawId}`;
+        document.getElementById('share-link').innerHTML = `Link permanente: <a href="${shareUrl}" target="_blank" class="underline">${shareUrl}</a>`;
+      }
+    }
+  </script>
+</body>
+</html>
