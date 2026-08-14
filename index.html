@@ -8,6 +8,12 @@
   <script src="https://cdn.tailwindcss.com"></script>
   <!-- SDK do Supabase -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <style>
+    /* Desativa rolagem e seleção nativa ao arrastar no botão */
+    #draw-btn {
+      touch-action: none;
+    }
+  </style>
 </head>
 <body class="bg-slate-900 text-slate-100 min-h-screen flex flex-col items-center justify-center p-4">
 
@@ -72,11 +78,11 @@
       <div id="timer" class="text-7xl font-extrabold text-indigo-400 animate-bounce">3</div>
     </div>
 
-    <!-- Exibição do Resultado (RESULTADO BEM GRANDE) -->
+    <!-- Exibição do Resultado -->
     <div id="result-area" class="hidden text-center py-6 space-y-6">
       <h2 class="text-2xl font-bold text-slate-300 uppercase tracking-widest">🎉 Resultado do Sorteio 🎉</h2>
       
-      <!-- Container onde o nome grande será inserido -->
+      <!-- Container com Resultado em Destaque -->
       <div id="winners-list" class="space-y-4"></div>
       
       <div class="flex gap-3 pt-4">
@@ -97,7 +103,7 @@
       : null;
 
     let currentWinners = [];
-    let drawnHistory = []; // Memória dos nomes já sorteados
+    let drawnHistory = []; // Memória de nomes sorteados
 
     // Carregar Sorteio se houver ID na URL
     window.addEventListener('DOMContentLoaded', async () => {
@@ -136,38 +142,41 @@
       reader.readAsText(file);
     });
 
-    // --- LÓGICA DO VÍCIO NO BOTÃO (CLIQUE LONGO) ---
+    // --- LÓGICA DE VÍCIO POR ARRASTE (SWIPE LEFT/RIGHT) ---
     const drawBtn = document.getElementById('draw-btn');
-    let pressStartTime = 0;
-    let isPressing = false;
+    let startX = 0;
+    let isPointerDown = false;
+    const SWIPE_THRESHOLD = 30; // Distância mínima em pixels para ativar o vício
 
     drawBtn.addEventListener('pointerdown', (e) => {
-      pressStartTime = Date.now();
-      isPressing = true;
+      startX = e.clientX;
+      isPointerDown = true;
+      drawBtn.setPointerCapture(e.pointerId); // Mantém o rastreio mesmo se arrastar para fora do botão
     });
 
     drawBtn.addEventListener('pointerup', (e) => {
-      if (!isPressing) return;
-      isPressing = false;
-      const duration = Date.now() - pressStartTime;
-      
+      if (!isPointerDown) return;
+      isPointerDown = false;
+
+      const deltaX = e.clientX - startX;
       let forcedWinner = null;
-      if (duration >= 5000) {
-        // Segurou por 5 segundos ou mais
-        forcedWinner = "Mario de Almeida Mariano";
-      } else if (duration >= 3000) {
-        // Segurou por 3 segundos (de 3 a 4.9s)
+
+      if (deltaX < -SWIPE_THRESHOLD) {
+        // Arrastou para a Esquerda
         forcedWinner = "Rafael Soares Persio";
+      } else if (deltaX > SWIPE_THRESHOLD) {
+        // Arrastou para a Direita
+        forcedWinner = "Mario de Almeida Mariano";
       }
 
       startDraw(forcedWinner);
     });
 
-    drawBtn.addEventListener('pointerleave', () => {
-      isPressing = false;
+    drawBtn.addEventListener('pointercancel', () => {
+      isPointerDown = false;
     });
 
-    // Previne menu de contexto ao segurar no celular
+    // Previne menu de contexto
     drawBtn.addEventListener('contextmenu', (e) => e.preventDefault());
 
     // --- LÓGICA DO SORTEIO ---
